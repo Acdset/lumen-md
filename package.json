@@ -1,0 +1,259 @@
+{
+  "name": "lumen-md",
+  "version": "1.0.0",
+  "description": "Lumen — 现代化 Markdown 编辑器（Typora 风格）",
+  "main": "dist-electron/main.js",
+  "author": "Lumen",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "electron:dev": "vite",
+    "electron:build": "vite build && electron-builder --mac",
+    "electron:build:win": "vite build && electron-builder --win",
+    "electron:build:win:dir": "vite build && electron-builder --win dir",
+    "dist": "npm run electron:build",
+    "dist:win": "npm run electron:build:win",
+    "install:app": "bash scripts/install-to-applications.sh",
+    "install:app:sign": "bash scripts/install-to-applications.sh --sign",
+    "install:app:quick": "bash scripts/install-to-applications.sh --skip-build",
+    "postinstall": "node scripts/ensure-electron.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.0",
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-go": "^6.0.1",
+    "@codemirror/lang-html": "^6.4.9",
+    "@codemirror/lang-java": "^6.0.1",
+    "@codemirror/lang-javascript": "^6.2.3",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-less": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.3.2",
+    "@codemirror/lang-python": "^6.2.0",
+    "@codemirror/lang-rust": "^6.0.1",
+    "@codemirror/lang-sass": "^6.0.2",
+    "@codemirror/lang-sql": "^6.8.0",
+    "@codemirror/lang-xml": "^6.1.0",
+    "@codemirror/lang-yaml": "^6.1.2",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/search": "^6.5.10",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.5",
+    "@lezer/highlight": "^1.2.1",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.21",
+    "lucide-react": "^0.484.0",
+    "markdown-it": "^14.1.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.7",
+    "@types/markdown-it": "^14.1.2",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "@types/turndown": "^5.0.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.1.2",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.3",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  },
+  "build": {
+    "appId": "com.lumen.md",
+    "productName": "Lumen",
+    "copyright": "Copyright © Lumen",
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mdown", "mkd"],
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "role": "Editor",
+        "rank": "Owner",
+        "mimeType": "text/markdown"
+      },
+      {
+        "ext": ["txt", "text", "log", "csv"],
+        "name": "Plain Text",
+        "description": "Plain Text Document",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["json", "jsonc", "json5"],
+        "name": "JSON Document",
+        "description": "JSON Document",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/json"
+      },
+      {
+        "ext": ["yml", "yaml", "toml", "ini", "conf", "cfg", "env"],
+        "name": "Config File",
+        "description": "Configuration File",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["sh", "bash", "zsh", "fish"],
+        "name": "Shell Script",
+        "description": "Shell Script",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "text/x-shellscript"
+      },
+      {
+        "ext": ["js", "jsx", "mjs", "cjs", "ts", "tsx", "css", "html", "xml", "py", "rb", "go", "rs", "swift", "sql"],
+        "name": "Source Code",
+        "description": "Source Code",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "text/plain"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lumen",
+      "installerLanguages": ["zh_CN", "en_US"],
+      "language": "2052",
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-win-portable.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "CFBundleName": "Lumen",
+        "CFBundleDisplayName": "Lumen",
+        "CFBundleIdentifier": "com.lumen.md",
+        "NSHumanReadableCopyright": "Copyright © Lumen",
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Markdown Document",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Owner",
+            "LSItemContentTypes": [
+              "net.daringfireball.markdown"
+            ],
+            "CFBundleTypeExtensions": ["md", "markdown", "mdown", "mkd"],
+            "CFBundleTypeMIMETypes": ["text/markdown", "text/x-markdown"]
+          },
+          {
+            "CFBundleTypeName": "Text Document",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.text",
+              "public.plain-text",
+              "public.source-code",
+              "public.shell-script",
+              "public.json",
+              "public.xml",
+              "public.yaml",
+              "public.unix-executable"
+            ],
+            "CFBundleTypeExtensions": [
+              "txt",
+              "text",
+              "log",
+              "csv",
+              "json",
+              "jsonc",
+              "yml",
+              "yaml",
+              "toml",
+              "ini",
+              "conf",
+              "cfg",
+              "env",
+              "sh",
+              "bash",
+              "zsh",
+              "js",
+              "ts",
+              "tsx",
+              "jsx",
+              "css",
+              "html",
+              "xml",
+              "py",
+              "go",
+              "rs",
+              "swift",
+              "sql"
+            ],
+            "CFBundleTypeMIMETypes": [
+              "text/plain",
+              "application/json",
+              "text/x-shellscript",
+              "text/css",
+              "text/html",
+              "text/xml"
+            ]
+          }
+        ],
+        "UTImportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "net.daringfireball.markdown",
+            "UTTypeDescription": "Markdown Document",
+            "UTTypeConformsTo": ["public.plain-text"],
+            "UTTypeTagSpecification": {
+              "public.filename-extension": ["md", "markdown", "mdown", "mkd"],
+              "public.mime-type": ["text/markdown", "text/x-markdown"]
+            }
+          }
+        ]
+      }
+    },
+    "dmg": {
+      "title": "Lumen"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ]
+  }
+}
