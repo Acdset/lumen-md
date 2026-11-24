@@ -32,9 +32,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # --publish never：CI 只上传 Artifact，不创建 Release 草稿
       - run: npm run electron:build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: lumen-windows

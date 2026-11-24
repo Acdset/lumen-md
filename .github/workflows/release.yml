@@ -54,15 +54,13 @@ jobs:
 
       - name: Build Windows
         if: matrix.platform == 'win'
+        # --publish never：禁止 electron-builder 自动创建草稿 Release，改由下方 release job 统一发布
         run: npm run electron:build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build macOS
         if: matrix.platform == 'mac'
         run: npm run electron:build
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 未配置签名证书时允许本地/CI 直接出包
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
