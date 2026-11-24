@@ -16,6 +16,9 @@
     "electron:build:win:dir": "vite build && electron-builder --win dir --publish never",
     "dist": "npm run electron:build",
     "dist:win": "npm run electron:build:win",
+    "dist:mac": "bash scripts/build-mac-release.sh",
+    "dist:mac:setup": "bash scripts/build-mac-release.sh --setup-credentials",
+    "dist:mac:sign-only": "bash scripts/build-mac-release.sh --skip-notarize",
     "install:app": "bash scripts/install-to-applications.sh",
     "install:app:sign": "bash scripts/install-to-applications.sh --sign",
     "install:app:quick": "bash scripts/install-to-applications.sh --skip-build",
@@ -56,6 +59,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.2",
     "@types/katex": "^0.16.7",
     "@types/markdown-it": "^14.1.2",
     "@types/react": "^19.0.12",
@@ -82,7 +86,12 @@
     },
     "fileAssociations": [
       {
-        "ext": ["md", "markdown", "mdown", "mkd"],
+        "ext": [
+          "md",
+          "markdown",
+          "mdown",
+          "mkd"
+        ],
         "name": "Markdown Document",
         "description": "Markdown Document",
         "role": "Editor",
@@ -90,7 +99,12 @@
         "mimeType": "text/markdown"
       },
       {
-        "ext": ["txt", "text", "log", "csv"],
+        "ext": [
+          "txt",
+          "text",
+          "log",
+          "csv"
+        ],
         "name": "Plain Text",
         "description": "Plain Text Document",
         "role": "Editor",
@@ -98,7 +112,11 @@
         "mimeType": "text/plain"
       },
       {
-        "ext": ["json", "jsonc", "json5"],
+        "ext": [
+          "json",
+          "jsonc",
+          "json5"
+        ],
         "name": "JSON Document",
         "description": "JSON Document",
         "role": "Editor",
@@ -106,7 +124,15 @@
         "mimeType": "application/json"
       },
       {
-        "ext": ["yml", "yaml", "toml", "ini", "conf", "cfg", "env"],
+        "ext": [
+          "yml",
+          "yaml",
+          "toml",
+          "ini",
+          "conf",
+          "cfg",
+          "env"
+        ],
         "name": "Config File",
         "description": "Configuration File",
         "role": "Editor",
@@ -114,7 +140,12 @@
         "mimeType": "text/plain"
       },
       {
-        "ext": ["sh", "bash", "zsh", "fish"],
+        "ext": [
+          "sh",
+          "bash",
+          "zsh",
+          "fish"
+        ],
         "name": "Shell Script",
         "description": "Shell Script",
         "role": "Editor",
@@ -122,7 +153,23 @@
         "mimeType": "text/x-shellscript"
       },
       {
-        "ext": ["js", "jsx", "mjs", "cjs", "ts", "tsx", "css", "html", "xml", "py", "rb", "go", "rs", "swift", "sql"],
+        "ext": [
+          "js",
+          "jsx",
+          "mjs",
+          "cjs",
+          "ts",
+          "tsx",
+          "css",
+          "html",
+          "xml",
+          "py",
+          "rb",
+          "go",
+          "rs",
+          "swift",
+          "sql"
+        ],
         "name": "Source Code",
         "description": "Source Code",
         "role": "Editor",
@@ -135,11 +182,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "${productName}-${version}-win-${arch}.${ext}"
@@ -150,7 +201,10 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Lumen",
-      "installerLanguages": ["zh_CN", "en_US"],
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
       "language": "2052",
       "perMachine": false,
       "deleteAppDataOnUninstall": false
@@ -158,12 +212,17 @@
     "portable": {
       "artifactName": "${productName}-${version}-win-portable.${ext}"
     },
+    "afterSign": "scripts/notarize.cjs",
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "extendInfo": {
         "CFBundleName": "Lumen",
@@ -178,8 +237,16 @@
             "LSItemContentTypes": [
               "net.daringfireball.markdown"
             ],
-            "CFBundleTypeExtensions": ["md", "markdown", "mdown", "mkd"],
-            "CFBundleTypeMIMETypes": ["text/markdown", "text/x-markdown"]
+            "CFBundleTypeExtensions": [
+              "md",
+              "markdown",
+              "mdown",
+              "mkd"
+            ],
+            "CFBundleTypeMIMETypes": [
+              "text/markdown",
+              "text/x-markdown"
+            ]
           },
           {
             "CFBundleTypeName": "Text Document",
@@ -239,10 +306,20 @@
           {
             "UTTypeIdentifier": "net.daringfireball.markdown",
             "UTTypeDescription": "Markdown Document",
-            "UTTypeConformsTo": ["public.plain-text"],
+            "UTTypeConformsTo": [
+              "public.plain-text"
+            ],
             "UTTypeTagSpecification": {
-              "public.filename-extension": ["md", "markdown", "mdown", "mkd"],
-              "public.mime-type": ["text/markdown", "text/x-markdown"]
+              "public.filename-extension": [
+                "md",
+                "markdown",
+                "mdown",
+                "mkd"
+              ],
+              "public.mime-type": [
+                "text/markdown",
+                "text/x-markdown"
+              ]
             }
           }
         ]

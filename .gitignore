@@ -6,6 +6,8 @@ release
 *.log
 .env
 .env.*
+!.env.signing.example
+.env.signing
 *.local
 .vscode/*
 !.vscode/extensions.json
