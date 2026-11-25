@@ -10,8 +10,18 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+import {
+  detectDocumentKind,
+  isBinaryDocument,
+  LISTABLE_EXT,
+  type DocumentKind,
+} from './documentKind'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -22,12 +32,31 @@ process.env.VITE_PUBLIC = app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
+let cjkFontCache: Buffer | null = null
 
 const APP_NAME = 'Lumen'
 
+/** 优先单文件 TTF/OTF（pdf-lib + fontkit 对 TTC 支持不稳定） */
+function resolveCjkFontPath(): string | null {
+  const winFonts = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts')
+  const candidates = [
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/Library/Fonts/Arial Unicode.ttf',
+    path.join(winFonts, 'msyh.ttf'),
+    path.join(winFonts, 'msyhbd.ttf'),
+    path.join(winFonts, 'simhei.ttf'),
+    path.join(winFonts, 'simkai.ttf'),
+    path.join(winFonts, 'simsun.ttc'),
+    path.join(winFonts, 'msyh.ttc'),
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf',
+    '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+  ]
+  return candidates.find((p) => existsSync(p)) ?? null
+}
+
 /** 常见文本扩展名；无扩展名 / 点文件另有规则 */
-const TEXT_EXT =
-  /\.(md|markdown|mdown|mkd|txt|text|json|jsonc|json5|yml|yaml|toml|ini|conf|cfg|config|env|properties|sh|bash|zsh|fish|ps1|py|rb|pl|php|js|jsx|mjs|cjs|ts|tsx|cts|mts|css|scss|less|sass|html|htm|xml|svg|csv|tsv|log|rs|go|java|kt|kts|c|h|cpp|cc|cxx|hpp|hxx|cs|swift|m|mm|sql|graphql|gql|r|lua|vue|svelte|astro|mdx|tex|rst|adoc|gitignore|dockerignore|editorconfig|npmrc|yarnrc|nvmrc|prettierrc|eslintrc|babelrc|lock|plist|entitlements|strings|xcconfig|pbxproj|gradle|dart|ex|exs|erl|hrl|clj|cljs|edn|hs|elm|fs|fsx|fsi|ml|mli|nim|zig|tf|hcl|proto|diff|patch|org|wiki)$/i
+const TEXT_EXT = LISTABLE_EXT
 
 const TEXT_BASENAMES = new Set([
   '.zshrc',
@@ -112,6 +141,34 @@ const TEXT_DIALOG_EXTENSIONS = [
   'swift',
   'sql',
 ]
+
+const OFFICE_DIALOG_EXTENSIONS = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'xlsm']
+const IMAGE_DIALOG_EXTENSIONS = [
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'bmp',
+  'ico',
+  'svg',
+  'avif',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+]
+
+export type OpenedDocument = {
+  path: string
+  kind: DocumentKind
+  /** 文本内容；二进制文档为空字符串 */
+  content: string
+  /** 二进制文档的 base64；文本文档省略 */
+  base64?: string
+  /** 图片预览 MIME（如 HEIC 转 JPEG 后为 image/jpeg） */
+  mime?: string
+}
 
 /** macOS 在 app ready 之前就可能触发 open-file，需提前排队 */
 const pendingOpenFiles: string[] = []
@@ -207,6 +264,58 @@ async function readTextFile(filePath: string): Promise<string> {
   return buf.toString('utf-8')
 }
 
+async function readImageDocument(filePath: string): Promise<OpenedDocument> {
+  const ext = path.extname(filePath).toLowerCase()
+  // Chromium 常无法直接解码 HEIC：macOS 上先用 sips 转 JPEG 预览
+  if (process.platform === 'darwin' && (ext === '.heic' || ext === '.heif')) {
+    const tmp = path.join(app.getPath('temp'), `lumen-preview-${Date.now()}.jpg`)
+    try {
+      await execFileAsync('sips', ['-s', 'format', 'jpeg', filePath, '--out', tmp])
+      const buf = await fs.readFile(tmp)
+      await fs.unlink(tmp).catch(() => undefined)
+      return {
+        path: filePath,
+        kind: 'image',
+        content: '',
+        base64: buf.toString('base64'),
+        mime: 'image/jpeg',
+      }
+    } catch (err) {
+      console.warn('[Lumen] HEIC preview convert failed, fallback raw', err)
+    }
+  }
+  const buf = await fs.readFile(filePath)
+  return {
+    path: filePath,
+    kind: 'image',
+    content: '',
+    base64: buf.toString('base64'),
+  }
+}
+
+async function openDocumentAtPath(filePath: string): Promise<OpenedDocument> {
+  const kind = detectDocumentKind(filePath)
+  if (kind === 'image') {
+    return readImageDocument(filePath)
+  }
+  if (isBinaryDocument(kind)) {
+    const buf = await fs.readFile(filePath)
+    return {
+      path: filePath,
+      kind,
+      content: '',
+      base64: buf.toString('base64'),
+    }
+  }
+  if (kind === 'unknown') {
+    // 未知扩展名仍尝试按文本打开
+    const content = await readTextFile(filePath)
+    return { path: filePath, kind: 'text', content }
+  }
+  const content = await readTextFile(filePath)
+  return { path: filePath, kind, content }
+}
+
 function collectArgvFiles(argv: string[] = process.argv): string[] {
   // 打包后: [app, ...files]；开发时: [electron, script, ...files]
   const start = app.isPackaged ? 1 : 2
@@ -225,16 +334,49 @@ function collectArgvFiles(argv: string[] = process.argv): string[] {
 function queueOpenFiles(paths: string | string[]) {
   const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => {
     try {
-      return Boolean(p) && existsSync(p)
+      if (!p || !existsSync(p)) return false
+      // Dock / 访达拖放文件夹：走打开文件夹而非当文件读
+      return true
     } catch {
       return false
     }
   })
   for (const p of list) {
+    try {
+      if (statSync(p).isDirectory()) {
+        void openFolderFromPath(p)
+        continue
+      }
+    } catch {
+      /* ignore */
+    }
     if (!pendingOpenFiles.includes(p)) pendingOpenFiles.push(p)
   }
   void flushOpenFiles()
 }
+
+async function openFolderFromPath(dirPath: string) {
+  if (!windowReadyToReceive || !mainWindow || mainWindow.isDestroyed()) {
+    // 窗口未就绪时暂存为「打开文件」队列外的文件夹事件
+    pendingOpenFolder = dirPath
+    return
+  }
+  try {
+    const tree = {
+      root: dirPath,
+      name: path.basename(dirPath),
+      children: await readDirTree(dirPath),
+    }
+    send('app:open-folder', tree)
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  } catch (err) {
+    console.error('[Lumen] open folder from path failed', dirPath, err)
+  }
+}
+
+let pendingOpenFolder: string | null = null
 
 async function flushOpenFiles() {
   if (!windowReadyToReceive || !mainWindow || mainWindow.isDestroyed()) return
@@ -243,8 +385,8 @@ async function flushOpenFiles() {
   const files = pendingOpenFiles.splice(0, pendingOpenFiles.length)
   for (const filePath of files) {
     try {
-      const content = await readTextFile(filePath)
-      send('app:open-file', { path: filePath, content })
+      const doc = await openDocumentAtPath(filePath)
+      send('app:open-file', doc)
     } catch (err) {
       console.error('[Lumen] open external file failed', filePath, err)
       dialog.showErrorBox(
@@ -262,6 +404,11 @@ async function flushOpenFiles() {
 function markWindowReady() {
   windowReadyToReceive = true
   void flushOpenFiles()
+  if (pendingOpenFolder) {
+    const folder = pendingOpenFolder
+    pendingOpenFolder = null
+    void openFolderFromPath(folder)
+  }
 }
 
 function buildMenu() {
@@ -547,21 +694,21 @@ async function showSaveDialog(
   }
 }
 
-async function openFileDialog(): Promise<{ path: string; content: string } | null> {
+async function openFileDialog(): Promise<OpenedDocument | null> {
   const result = await showOpenDialog({
     title: '打开文件',
     properties: ['openFile'],
     filters: [
       // 默认「所有文件」，以便打开 .zshrc / .env 等无扩展名文件
       { name: '所有文件', extensions: ['*'] },
+      { name: '图片', extensions: [...IMAGE_DIALOG_EXTENSIONS] },
+      { name: '办公文档', extensions: [...OFFICE_DIALOG_EXTENSIONS] },
       { name: '文本文件', extensions: TEXT_DIALOG_EXTENSIONS },
       { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] },
     ],
   })
   if (result.canceled || !result.filePaths[0]) return null
-  const filePath = result.filePaths[0]
-  const content = await readTextFile(filePath)
-  return { path: filePath, content }
+  return openDocumentAtPath(result.filePaths[0])
 }
 
 async function openFolderDialog(): Promise<string | null> {
@@ -580,6 +727,8 @@ async function saveFileDialog(defaultPath?: string): Promise<string | null> {
     filters: [
       { name: '所有文件', extensions: ['*'] },
       { name: 'Markdown', extensions: ['md', 'markdown'] },
+      { name: 'Word 文档', extensions: ['docx'] },
+      { name: 'Excel 表格', extensions: ['xlsx'] },
       { name: '文本文件', extensions: TEXT_DIALOG_EXTENSIONS },
     ],
   })
@@ -620,7 +769,7 @@ async function readDirTree(dirPath: string, depth = 0): Promise<FileNode[]> {
         type: 'directory',
         children: await readDirTree(full, depth + 1),
       })
-    } else if (isTextPath(full)) {
+    } else if (isTextPath(full) || isBinaryDocument(detectDocumentKind(full))) {
       nodes.push({ name: entry.name, path: full, type: 'file' })
     }
   }
@@ -663,13 +812,51 @@ function registerIpc() {
     },
   )
 
+  ipcMain.handle('fonts:cjk', async () => {
+    if (cjkFontCache) return cjkFontCache
+    const fontPath = resolveCjkFontPath()
+    if (!fontPath) {
+      throw new Error('未找到可用的中文字体，请安装 Arial Unicode / 微软雅黑 / 黑体')
+    }
+    cjkFontCache = await fs.readFile(fontPath)
+    return cjkFontCache
+  })
+
   ipcMain.handle('fs:read-file', async (_e, filePath: string) => {
     return readTextFile(filePath)
+  })
+
+  ipcMain.handle('fs:read-document', async (_e, filePath: string) => {
+    return openDocumentAtPath(filePath)
   })
 
   ipcMain.handle('fs:write-file', async (_e, filePath: string, content: string) => {
     await fs.writeFile(filePath, content, 'utf-8')
     return true
+  })
+
+  ipcMain.handle('fs:write-buffer', async (_e, filePath: string, base64: string) => {
+    await fs.writeFile(filePath, Buffer.from(base64, 'base64'))
+    return true
+  })
+
+  ipcMain.handle('office:html-to-docx', async (_e, html: string, title: string) => {
+    const mod = await import('html-to-docx')
+    const HTMLtoDOCX = mod.default
+    const safeTitle = String(title || 'document')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    const wrapped = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${safeTitle}</title></head><body>${html || '<p></p>'}</body></html>`
+    const out = await HTMLtoDOCX(wrapped, null, {
+      table: { row: { cantSplit: true } },
+      footer: false,
+      header: false,
+    })
+    if (Buffer.isBuffer(out)) return out.toString('base64')
+    if (out instanceof ArrayBuffer) return Buffer.from(out).toString('base64')
+    const ab = await (out as Blob).arrayBuffer()
+    return Buffer.from(ab).toString('base64')
   })
 
   ipcMain.handle('fs:exists', async (_e, targetPath: string) => {

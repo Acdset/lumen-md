@@ -1,6 +1,6 @@
 {
   "name": "lumen-md",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Lumen — 现代化 Markdown 编辑器（Typora 风格）",
   "main": "dist-electron/main.js",
   "author": "Lumen",
@@ -22,7 +22,8 @@
     "install:app": "bash scripts/install-to-applications.sh",
     "install:app:sign": "bash scripts/install-to-applications.sh --sign",
     "install:app:quick": "bash scripts/install-to-applications.sh --skip-build",
-    "postinstall": "node scripts/ensure-electron.mjs"
+    "postinstall": "node scripts/ensure-electron.mjs && node scripts/sync-pdfjs-assets.mjs",
+    "sync:pdfjs": "node scripts/sync-pdfjs-assets.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.0",
@@ -47,15 +48,21 @@
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.36.5",
     "@lezer/highlight": "^1.2.1",
+    "@pdf-lib/fontkit": "^1.1.1",
     "highlight.js": "^11.11.1",
+    "html-to-docx": "^1.8.0",
     "katex": "^0.16.21",
     "lucide-react": "^0.484.0",
+    "mammoth": "^1.13.0",
     "markdown-it": "^14.1.0",
     "markdown-it-task-lists": "^2.1.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
@@ -175,6 +182,61 @@
         "role": "Editor",
         "rank": "Alternate",
         "mimeType": "text/plain"
+      },
+      {
+        "ext": [
+          "pdf"
+        ],
+        "name": "PDF Document",
+        "description": "PDF Document",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "mimeType": "application/pdf"
+      },
+      {
+        "ext": [
+          "docx",
+          "doc"
+        ],
+        "name": "Word Document",
+        "description": "Microsoft Word Document",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      },
+      {
+        "ext": [
+          "xlsx",
+          "xls",
+          "xlsm"
+        ],
+        "name": "Excel Spreadsheet",
+        "description": "Microsoft Excel Spreadsheet",
+        "role": "Editor",
+        "rank": "Alternate",
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      },
+      {
+        "ext": [
+          "png",
+          "jpg",
+          "jpeg",
+          "gif",
+          "webp",
+          "bmp",
+          "ico",
+          "svg",
+          "avif",
+          "tif",
+          "tiff",
+          "heic",
+          "heif"
+        ],
+        "name": "Image",
+        "description": "Image File",
+        "role": "Viewer",
+        "rank": "Alternate",
+        "mimeType": "image/png"
       }
     ],
     "win": {
@@ -299,6 +361,95 @@
               "text/css",
               "text/html",
               "text/xml"
+            ]
+          },
+          {
+            "CFBundleTypeName": "PDF Document",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.adobe.pdf"
+            ],
+            "CFBundleTypeExtensions": [
+              "pdf"
+            ],
+            "CFBundleTypeMIMETypes": [
+              "application/pdf"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Word Document",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "org.openxmlformats.wordprocessingml.document",
+              "com.microsoft.word.doc"
+            ],
+            "CFBundleTypeExtensions": [
+              "docx",
+              "doc"
+            ],
+            "CFBundleTypeMIMETypes": [
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/msword"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Excel Spreadsheet",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "org.openxmlformats.spreadsheetml.sheet",
+              "com.microsoft.excel.xls"
+            ],
+            "CFBundleTypeExtensions": [
+              "xlsx",
+              "xls",
+              "xlsm"
+            ],
+            "CFBundleTypeMIMETypes": [
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.ms-excel"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Image",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.image",
+              "public.png",
+              "public.jpeg",
+              "com.compuserve.gif",
+              "public.tiff",
+              "public.svg-image",
+              "public.heic"
+            ],
+            "CFBundleTypeExtensions": [
+              "png",
+              "jpg",
+              "jpeg",
+              "gif",
+              "webp",
+              "bmp",
+              "ico",
+              "svg",
+              "avif",
+              "tif",
+              "tiff",
+              "heic",
+              "heif"
+            ],
+            "CFBundleTypeMIMETypes": [
+              "image/png",
+              "image/jpeg",
+              "image/gif",
+              "image/webp",
+              "image/bmp",
+              "image/svg+xml",
+              "image/avif",
+              "image/tiff",
+              "image/heic"
             ]
           }
         ],

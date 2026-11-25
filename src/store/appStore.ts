@@ -1,7 +1,13 @@
 import { create } from 'zustand'
+import {
+  detectDocumentKind,
+  defaultModeForKind,
+  isMarkdownFile,
+  type DocumentKind,
+} from '@/lib/documentKind'
 
 export type ThemeId = 'paper' | 'ink' | 'parchment' | 'system'
-export type EditorMode = 'wysiwyg' | 'live' | 'source'
+export type EditorMode = 'wysiwyg' | 'live' | 'source' | 'office'
 
 export type OutlineItem = {
   id: string
@@ -17,8 +23,23 @@ export type FileNode = {
   children?: FileNode[]
 }
 
+export type ExcelSheetData = {
+  name: string
+  rows: string[][]
+}
+
 type AppState = {
   content: string
+  /** Word 编辑用的 HTML；Excel/PDF 不用此字段存主内容 */
+  htmlContent: string
+  /** Excel 工作表 */
+  excelSheets: ExcelSheetData[]
+  excelActiveSheet: number
+  /** PDF / 图片 / 二进制原始 base64（保存 Word/Excel 时由组件生成） */
+  binaryBase64: string | null
+  /** 图片预览 MIME（HEIC 转码后可能与扩展名不同） */
+  imageMime: string | null
+  documentKind: DocumentKind
   filePath: string | null
   fileName: string
   dirty: boolean
@@ -37,7 +58,21 @@ type AppState = {
   findQuery: string
   preferencesOpen: boolean
   setContent: (content: string, markDirty?: boolean) => void
-  setFile: (path: string | null, content: string) => void
+  setHtmlContent: (html: string, markDirty?: boolean) => void
+  setExcelSheets: (sheets: ExcelSheetData[], active?: number, markDirty?: boolean) => void
+  setExcelActiveSheet: (index: number) => void
+  setBinaryBase64: (base64: string | null) => void
+  setFile: (
+    path: string | null,
+    content: string,
+    options?: {
+      kind?: DocumentKind
+      base64?: string
+      mime?: string
+      html?: string
+      sheets?: ExcelSheetData[]
+    },
+  ) => void
   markSaved: (path?: string) => void
   setMode: (mode: EditorMode) => void
   toggleMode: () => void
@@ -70,6 +105,7 @@ Lumen 是一款面向 macOS 的现代化 Markdown 编辑器，灵感来自 Typor
 - 源码模式：\`⌘/\` 查看原始 Markdown
 - 文件树与大纲、专注 / 打字机模式
 - 纸白 / 夜墨 / 羊皮 主题
+- 支持 Markdown / Word / Excel / PDF
 
 ## 试试看
 
@@ -108,14 +144,6 @@ console.log(greeting('Lumen'))
 开始写作吧 —— 删除这段文字，从空白页启程。
 `
 
-const MARKDOWN_EXT = /\.(md|markdown|mdown|mkd)$/i
-
-function isMarkdownFile(pathOrName: string | null | undefined) {
-  if (!pathOrName) return true
-  const name = pathOrName.includes('/') ? pathOrName.split('/').pop() || pathOrName : pathOrName
-  return MARKDOWN_EXT.test(name)
-}
-
 function countContent(content: string) {
   const lines = content.length === 0 ? 0 : content.split('\n').length
   const chars = content.replace(/\s/g, '').length
@@ -128,8 +156,19 @@ function countContent(content: string) {
   return { words, chars, lines }
 }
 
+function countHtml(html: string) {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  return countContent(text)
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   content: WELCOME,
+  htmlContent: '',
+  excelSheets: [],
+  excelActiveSheet: 0,
+  binaryBase64: null,
+  imageMime: null,
+  documentKind: 'markdown',
   filePath: null,
   fileName: '未命名.md',
   dirty: false,
@@ -155,38 +194,89 @@ export const useAppStore = create<AppState>((set, get) => ({
       wordCount: countContent(content),
     }),
 
-  setFile: (path, content) => {
-    const fileName = path ? path.split('/').pop() || '未命名.md' : '未命名.md'
-    // Markdown 默认预览编辑；其他文本默认源码
+  setHtmlContent: (html, markDirty = true) =>
+    set({
+      htmlContent: html,
+      dirty: markDirty ? true : get().dirty,
+      wordCount: countHtml(html),
+    }),
+
+  setExcelSheets: (sheets, active, markDirty = true) =>
+    set((s) => ({
+      excelSheets: sheets,
+      excelActiveSheet: active ?? s.excelActiveSheet,
+      dirty: markDirty ? true : s.dirty,
+      wordCount: {
+        words: sheets.reduce((n, sh) => n + sh.rows.length, 0),
+        chars: sheets.reduce(
+          (n, sh) => n + sh.rows.reduce((m, r) => m + r.join('').length, 0),
+          0,
+        ),
+        lines: sheets.reduce((n, sh) => n + sh.rows.length, 0),
+      },
+    })),
+
+  setExcelActiveSheet: (index) => set({ excelActiveSheet: index }),
+
+  setBinaryBase64: (base64) => set({ binaryBase64: base64 }),
+
+  setFile: (path, content, options) => {
+    const fileName = path ? path.split(/[/\\]/).pop() || '未命名.md' : '未命名.md'
+    const kind = options?.kind ?? detectDocumentKind(fileName)
+    const mode = defaultModeForKind(kind) as EditorMode
     set({
       filePath: path,
       fileName,
       content,
+      htmlContent: options?.html ?? '',
+      excelSheets: options?.sheets ?? [],
+      excelActiveSheet: 0,
+      binaryBase64: options?.base64 ?? null,
+      imageMime: options?.mime ?? null,
+      documentKind: kind,
       dirty: false,
-      wordCount: countContent(content),
-      mode: isMarkdownFile(fileName) ? 'wysiwyg' : 'source',
+      wordCount:
+        kind === 'word'
+          ? countHtml(options?.html ?? '')
+          : kind === 'excel'
+            ? {
+                words: (options?.sheets ?? []).reduce((n, sh) => n + sh.rows.length, 0),
+                chars: 0,
+                lines: (options?.sheets ?? []).reduce((n, sh) => n + sh.rows.length, 0),
+              }
+            : kind === 'image' || kind === 'pdf'
+              ? { words: 0, chars: 0, lines: 0 }
+              : countContent(content),
+      mode,
+      // 办公/图片时收起大纲更清爽
+      outlineOpen: kind === 'markdown' || kind === 'text' ? get().outlineOpen : false,
     })
   },
 
   markSaved: (path) =>
     set((s) => {
       const filePath = path ?? s.filePath
-      const fileName = filePath?.split('/').pop() || s.fileName
-      const typeChanged = isMarkdownFile(s.fileName) !== isMarkdownFile(fileName)
+      const fileName = filePath?.split(/[/\\]/).pop() || s.fileName
+      const nextKind = detectDocumentKind(fileName)
+      const typeChanged = s.documentKind !== nextKind
       return {
         dirty: false,
         filePath,
         fileName,
-        // 仅在另存为导致 md ↔ 非 md 切换时调整默认模式
-        ...(typeChanged
-          ? { mode: isMarkdownFile(fileName) ? ('wysiwyg' as const) : ('source' as const) }
-          : {}),
+        documentKind: nextKind,
+        ...(typeChanged ? { mode: defaultModeForKind(nextKind) as EditorMode } : {}),
       }
     }),
 
   newDocument: () =>
     set({
       content: '',
+      htmlContent: '',
+      excelSheets: [],
+      excelActiveSheet: 0,
+      binaryBase64: null,
+      imageMime: null,
+      documentKind: 'markdown',
       filePath: null,
       fileName: '未命名.md',
       dirty: false,
@@ -195,12 +285,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       mode: 'wysiwyg',
     }),
 
-
-  setMode: (mode) => set({ mode }),
+  setMode: (mode) => {
+    const kind = get().documentKind
+    if (kind === 'word' || kind === 'excel' || kind === 'pdf' || kind === 'image') {
+      set({ mode: 'office' })
+      return
+    }
+    if (mode === 'office') {
+      set({ mode: isMarkdownFile(get().fileName) ? 'wysiwyg' : 'source' })
+      return
+    }
+    set({ mode })
+  },
   toggleMode: () =>
     set((s) => {
+      if (
+        s.documentKind === 'word' ||
+        s.documentKind === 'excel' ||
+        s.documentKind === 'pdf' ||
+        s.documentKind === 'image'
+      ) {
+        return { mode: 'office' }
+      }
       const order: EditorMode[] = ['wysiwyg', 'live', 'source']
-      const next = order[(order.indexOf(s.mode) + 1) % order.length]
+      const next = order[(order.indexOf(s.mode === 'office' ? 'wysiwyg' : s.mode) + 1) % order.length]
       return { mode: next }
     }),
   setTheme: (theme) => set({ theme }),

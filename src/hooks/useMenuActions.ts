@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { exportHtmlDocument, renderMarkdown } from '@/lib/markdown'
 import type { ThemeId } from '@/store/appStore'
+import { loadOfficeFromDocument, htmlToDocxBase64, excelSheetsToBase64 } from '@/lib/office'
+import type { OpenedDocument } from '../../electron/preload'
+import { detectDocumentKind, isBinaryDocument } from '@/lib/documentKind'
 
 export type FindRequest = {
   query: string
@@ -44,6 +47,20 @@ function requireLumen() {
   return window.lumen
 }
 
+async function applyOpenedDocument(doc: OpenedDocument) {
+  const api = requireLumen()
+  if (!api) return
+  const loaded = await loadOfficeFromDocument(doc)
+  useAppStore.getState().setFile(doc.path, loaded.content, {
+    kind: doc.kind,
+    base64: loaded.base64,
+    mime: loaded.mime ?? doc.mime,
+    html: loaded.html,
+    sheets: loaded.sheets,
+  })
+  await api.setTitle(`${doc.path.split(/[/\\]/).pop()} — Lumen`)
+}
+
 async function saveCurrent(saveAs = false) {
   const api = requireLumen()
   if (!api) return
@@ -54,9 +71,35 @@ async function saveCurrent(saveAs = false) {
       path = await api.saveFileDialog(path ?? state.fileName)
       if (!path) return
     }
-    await api.writeFile(path, state.content)
+
+    const kind = detectDocumentKind(path)
+    if (kind === 'word') {
+      const base64 = await htmlToDocxBase64(state.htmlContent || '<p></p>', state.fileName)
+      // 旧 .doc 另存时改为 .docx
+      if (/\.doc$/i.test(path) && !/\.docx$/i.test(path)) {
+        path = path.replace(/\.doc$/i, '.docx')
+      }
+      await api.writeBuffer(path, base64)
+      state.setBinaryBase64(base64)
+    } else if (kind === 'excel') {
+      const base64 = await excelSheetsToBase64(state.excelSheets)
+      if (/\.xls$/i.test(path) && !/\.xlsx$/i.test(path)) {
+        path = path.replace(/\.xls$/i, '.xlsx')
+      }
+      await api.writeBuffer(path, base64)
+      state.setBinaryBase64(base64)
+    } else if (kind === 'pdf' || kind === 'image') {
+      if (!state.binaryBase64) {
+        window.alert(kind === 'image' ? '没有可保存的图片数据。' : '没有可保存的 PDF 数据。')
+        return
+      }
+      await api.writeBuffer(path, state.binaryBase64)
+    } else {
+      await api.writeFile(path, state.content)
+    }
+
     state.markSaved(path)
-    await api.setTitle(`${path.split('/').pop()} — Lumen`)
+    await api.setTitle(`${path.split(/[/\\]/).pop()} — Lumen`)
   } catch (err) {
     console.error('[Lumen] save failed', err)
     window.alert(`保存失败：${err instanceof Error ? err.message : String(err)}`)
@@ -67,7 +110,7 @@ async function openPathContent(filePath: string, content: string) {
   const api = requireLumen()
   if (!api) return
   useAppStore.getState().setFile(filePath, content)
-  await api.setTitle(`${filePath.split('/').pop()} — Lumen`)
+  await api.setTitle(`${filePath.split(/[/\\]/).pop()} — Lumen`)
 }
 
 async function openFile() {
@@ -76,16 +119,16 @@ async function openFile() {
   try {
     const result = await api.openFile()
     if (!result) return
-    await openPathContent(result.path, result.content)
+    await applyOpenedDocument(result)
   } catch (err) {
     console.error('[Lumen] openFile failed', err)
     window.alert(`打开文件失败：${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
-async function openExternalFile(payload: { path: string; content: string }) {
+async function openExternalFile(payload: OpenedDocument) {
   try {
-    await openPathContent(payload.path, payload.content)
+    await applyOpenedDocument(payload)
   } catch (err) {
     console.error('[Lumen] openExternalFile failed', err)
     window.alert(`打开文件失败：${err instanceof Error ? err.message : String(err)}`)
@@ -100,14 +143,25 @@ async function openDroppedFiles(fileList: FileList | File[]) {
     const filePath = api.getPathForFile(file)
     if (!filePath) continue
     try {
-      // 任意文本：由主进程读入时做二进制启发式校验
-      const content = await api.readFile(filePath)
-      await openPathContent(filePath, content)
+      const doc = await api.readDocument(filePath)
+      await applyOpenedDocument(doc)
       return
     } catch (err) {
       console.error('[Lumen] drop open failed', filePath, err)
       window.alert(`打开文件失败：${err instanceof Error ? err.message : String(err)}`)
     }
+  }
+}
+
+async function openTreeFile(filePath: string) {
+  const api = requireLumen()
+  if (!api) return
+  try {
+    const doc = await api.readDocument(filePath)
+    await applyOpenedDocument(doc)
+  } catch (err) {
+    console.error('[Lumen] openTreeFile failed', err)
+    window.alert(`打开文件失败：${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
@@ -130,6 +184,10 @@ async function exportHtml() {
   if (!api) return
   try {
     const state = useAppStore.getState()
+    if (isBinaryDocument(state.documentKind)) {
+      window.alert('办公文档请使用「另存为」保存原格式。')
+      return
+    }
     const path = await api.saveFileDialog(
       (state.filePath ?? state.fileName).replace(/\.md$/i, '.html'),
     )
@@ -165,9 +223,25 @@ export function useMenuActions() {
 
     const unsubs = [
       window.lumen.onMenu('app:open-file', (payload) => {
-        const data = payload as { path?: string; content?: string } | undefined
-        if (data?.path != null && data.content != null) {
-          void openExternalFile({ path: data.path, content: data.content })
+        const data = payload as OpenedDocument | undefined
+        if (data?.path) {
+          void openExternalFile({
+            path: data.path,
+            kind: data.kind ?? detectDocumentKind(data.path),
+            content: data.content ?? '',
+            base64: data.base64,
+            mime: data.mime,
+          })
+        }
+      }),
+      window.lumen.onMenu('app:open-folder', (payload) => {
+        const tree = payload as { root?: string; name?: string; children?: unknown } | undefined
+        if (tree?.root && tree.name && Array.isArray(tree.children)) {
+          useAppStore.getState().setFolder(
+            tree.root,
+            tree.name,
+            tree.children as import('@/store/appStore').FileNode[],
+          )
         }
       }),
       window.lumen.onMenu('menu:new', () => useAppStore.getState().newDocument()),
@@ -192,7 +266,6 @@ export function useMenuActions() {
       window.lumen.onMenu('menu:find', () => {
         const store = useAppStore.getState()
         if (store.findOpen) {
-          // 已打开时再次触发，让输入框重新聚焦
           store.setFindOpen(false)
           queueMicrotask(() => useAppStore.getState().setFindOpen(true))
         } else {
@@ -223,4 +296,12 @@ export function useMenuActions() {
   }, [])
 }
 
-export { saveCurrent, openFile, openFolder, exportHtml, renderMarkdown, openDroppedFiles }
+export {
+  saveCurrent,
+  openFile,
+  openFolder,
+  exportHtml,
+  renderMarkdown,
+  openDroppedFiles,
+  openTreeFile,
+}

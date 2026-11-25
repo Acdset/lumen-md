@@ -185,6 +185,14 @@ export function EditablePreview({ content, onChange, focusMode, typewriterMode }
             )
             break
           }
+          case 'insert-md': {
+            document.execCommand(
+              'insertHTML',
+              false,
+              `<table><thead><tr><th>列1</th><th>列2</th><th>列3</th></tr></thead><tbody><tr><td><br></td><td><br></td><td><br></td></tr></tbody></table><p><br></p>`,
+            )
+            break
+          }
           default:
             break
         }

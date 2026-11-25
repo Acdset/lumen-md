@@ -13,9 +13,26 @@ export type DirTree = {
   children: FileNode[]
 }
 
+export type DocumentKind =
+  | 'markdown'
+  | 'text'
+  | 'word'
+  | 'excel'
+  | 'pdf'
+  | 'image'
+  | 'unknown'
+
+export type OpenedDocument = {
+  path: string
+  kind: DocumentKind
+  content: string
+  base64?: string
+  mime?: string
+}
+
 const api = {
   openFile: () =>
-    ipcRenderer.invoke('dialog:open-file') as Promise<{ path: string; content: string } | null>,
+    ipcRenderer.invoke('dialog:open-file') as Promise<OpenedDocument | null>,
   openFolder: () => ipcRenderer.invoke('dialog:open-folder') as Promise<string | null>,
   saveFileDialog: (defaultPath?: string) =>
     ipcRenderer.invoke('dialog:save-file', defaultPath) as Promise<string | null>,
@@ -25,10 +42,18 @@ const api = {
     detail?: string
     dangerous?: boolean
   }) => ipcRenderer.invoke('dialog:confirm', options) as Promise<boolean>,
+  /** 系统 CJK 字体原始字节（供 pdf-lib 嵌入） */
+  readCjkFont: () => ipcRenderer.invoke('fonts:cjk') as Promise<ArrayBuffer | Uint8Array>,
   readFile: (filePath: string) =>
     ipcRenderer.invoke('fs:read-file', filePath) as Promise<string>,
+  readDocument: (filePath: string) =>
+    ipcRenderer.invoke('fs:read-document', filePath) as Promise<OpenedDocument>,
   writeFile: (filePath: string, content: string) =>
     ipcRenderer.invoke('fs:write-file', filePath, content) as Promise<boolean>,
+  writeBuffer: (filePath: string, base64: string) =>
+    ipcRenderer.invoke('fs:write-buffer', filePath, base64) as Promise<boolean>,
+  htmlToDocx: (html: string, title: string) =>
+    ipcRenderer.invoke('office:html-to-docx', html, title) as Promise<string>,
   exists: (targetPath: string) =>
     ipcRenderer.invoke('fs:exists', targetPath) as Promise<boolean>,
   mkdir: (dirPath: string, rootPath?: string) =>

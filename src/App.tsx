@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { TitleBar } from '@/components/TitleBar'
 import { Sidebar } from '@/components/Sidebar'
 import { Outline } from '@/components/Outline'
@@ -8,9 +8,15 @@ import { LivePreview } from '@/components/LivePreview'
 import { EditablePreview } from '@/components/EditablePreview'
 import { Preferences } from '@/components/Preferences'
 import { FindBar } from '@/components/FindBar'
+import { FormatToolbar } from '@/components/FormatToolbar'
+import { WordEditor } from '@/components/WordEditor'
+import { ExcelEditor, excelToolbarActions } from '@/components/ExcelEditor'
+import { PdfViewer, type PdfViewerHandle } from '@/components/PdfViewer'
+import { ImageViewer, type ImageViewerHandle } from '@/components/ImageViewer'
 import { useAppStore } from '@/store/appStore'
 import { extractOutline } from '@/lib/markdown'
-import { openFile, openFolder, saveCurrent, useMenuActions } from '@/hooks/useMenuActions'
+import { openFile, openFolder, openTreeFile, saveCurrent, useMenuActions } from '@/hooks/useMenuActions'
+import { isOfficeOrMarkdown } from '@/lib/documentKind'
 
 function resolveTheme(theme: string): 'light' | 'dark' {
   if (theme === 'ink') return 'dark'
@@ -31,12 +37,19 @@ const modeLabels: Record<string, string> = {
   wysiwyg: '预览编辑',
   live: '分栏预览',
   source: '源码',
+  office: '预览',
 }
 
 export default function App() {
   useMenuActions()
 
   const content = useAppStore((s) => s.content)
+  const htmlContent = useAppStore((s) => s.htmlContent)
+  const excelSheets = useAppStore((s) => s.excelSheets)
+  const excelActiveSheet = useAppStore((s) => s.excelActiveSheet)
+  const binaryBase64 = useAppStore((s) => s.binaryBase64)
+  const imageMime = useAppStore((s) => s.imageMime)
+  const documentKind = useAppStore((s) => s.documentKind)
   const filePath = useAppStore((s) => s.filePath)
   const fileName = useAppStore((s) => s.fileName)
   const dirty = useAppStore((s) => s.dirty)
@@ -54,7 +67,10 @@ export default function App() {
   const findQuery = useAppStore((s) => s.findQuery)
   const preferencesOpen = useAppStore((s) => s.preferencesOpen)
   const setContent = useAppStore((s) => s.setContent)
-  const setFile = useAppStore((s) => s.setFile)
+  const setHtmlContent = useAppStore((s) => s.setHtmlContent)
+  const setExcelSheets = useAppStore((s) => s.setExcelSheets)
+  const setExcelActiveSheet = useAppStore((s) => s.setExcelActiveSheet)
+  const setBinaryBase64 = useAppStore((s) => s.setBinaryBase64)
   const setFolder = useAppStore((s) => s.setFolder)
   const newDocument = useAppStore((s) => s.newDocument)
   const setOutline = useAppStore((s) => s.setOutline)
@@ -73,23 +89,39 @@ export default function App() {
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const setOutlineOpen = useAppStore((s) => s.setOutlineOpen)
 
+  const pdfRef = useRef<PdfViewerHandle>(null)
+  const imageRef = useRef<ImageViewerHandle>(null)
+  const [pdfMeta, setPdfMeta] = useState({ page: 1, pageCount: 0, scale: 1.2, busy: false })
+  const [imageMeta, setImageMeta] = useState({
+    scale: 1,
+    rotation: 0,
+    naturalWidth: 0,
+    naturalHeight: 0,
+    cropping: false,
+  })
+
   const resolved = resolveTheme(theme)
   const skin = theme === 'system' ? (resolved === 'dark' ? 'ink' : 'paper') : theme
+  const showFormatBar = isOfficeOrMarkdown(documentKind) && !focusMode
+  const isOffice = mode === 'office'
 
   useEffect(() => {
     const root = document.documentElement
     root.dataset.theme = skin
     root.dataset.colorScheme = resolved
     root.style.colorScheme = resolved
-    // 同步到 body，避免个别样式只吃 body 继承时仍用浅色文字
     document.body.dataset.theme = skin
     document.body.style.color = ''
     document.body.style.background = ''
   }, [skin, resolved])
 
   useEffect(() => {
-    setOutline(extractOutline(content))
-  }, [content, setOutline])
+    if (documentKind === 'markdown' || documentKind === 'text') {
+      setOutline(extractOutline(content))
+    } else {
+      setOutline([])
+    }
+  }, [content, documentKind, setOutline])
 
   useEffect(() => {
     const title = `${dirty ? '• ' : ''}${fileName} — Lumen`
@@ -119,11 +151,6 @@ export default function App() {
 
   const modeLabel = useMemo(() => modeLabels[mode] ?? mode, [mode])
 
-  const openTreeFile = async (path: string) => {
-    const text = await window.lumen.readFile(path)
-    setFile(path, text)
-  }
-
   const refreshTree = async () => {
     if (!folderPath) return
     const tree = await window.lumen.readDirTree(folderPath)
@@ -148,6 +175,7 @@ export default function App() {
     useAppStore.setState({
       filePath: nextPath,
       fileName: nextPath.split('/').pop() || useAppStore.getState().fileName,
+      documentKind: useAppStore.getState().documentKind,
     })
   }
 
@@ -173,12 +201,15 @@ export default function App() {
     })
   }
 
+  const excelActions = excelToolbarActions(excelSheets, excelActiveSheet, setExcelSheets)
+  const isLegacyDoc = /\.doc$/i.test(fileName) && !/\.docx$/i.test(fileName)
+
   return (
-    <div className={`app ${focusMode ? 'focus-mode' : ''}`}>
+    <div className={`app ${focusMode ? 'focus-mode' : ''} ${showFormatBar ? 'has-format-bar' : ''}`}>
       <TitleBar
         fileName={fileName}
         dirty={dirty}
-        mode={mode}
+        mode={mode === 'office' ? 'wysiwyg' : mode}
         sidebarOpen={sidebarOpen}
         outlineOpen={outlineOpen}
         focusMode={focusMode}
@@ -193,6 +224,54 @@ export default function App() {
         onPreferences={() => setPreferencesOpen(true)}
       />
 
+      {showFormatBar && (
+        <FormatToolbar
+          kind={documentKind}
+          wordLegacy={isLegacyDoc}
+          excel={documentKind === 'excel' ? excelActions : undefined}
+          pdf={
+            documentKind === 'pdf'
+              ? {
+                  page: pdfMeta.page,
+                  pageCount: pdfMeta.pageCount,
+                  scale: pdfMeta.scale,
+                  busy: pdfMeta.busy,
+                  onPrev: () => pdfRef.current?.prev(),
+                  onNext: () => pdfRef.current?.next(),
+                  onZoomIn: () => pdfRef.current?.zoomIn(),
+                  onZoomOut: () => pdfRef.current?.zoomOut(),
+                  onPrint: () => pdfRef.current?.print(),
+                  onRotate: () => pdfRef.current?.rotatePage(),
+                  onDeletePage: () => pdfRef.current?.deletePage(),
+                  onInsertPage: () => pdfRef.current?.insertPage(),
+                  onMoveUp: () => pdfRef.current?.movePageUp(),
+                  onMoveDown: () => pdfRef.current?.movePageDown(),
+                  onAddText: () => pdfRef.current?.addText(),
+                }
+              : undefined
+          }
+          image={
+            documentKind === 'image'
+              ? {
+                  scale: imageMeta.scale,
+                  naturalWidth: imageMeta.naturalWidth,
+                  naturalHeight: imageMeta.naturalHeight,
+                  cropping: imageMeta.cropping,
+                  onZoomIn: () => imageRef.current?.zoomIn(),
+                  onZoomOut: () => imageRef.current?.zoomOut(),
+                  onFit: () => imageRef.current?.fit(),
+                  onActual: () => imageRef.current?.resetView(),
+                  onRotate: () => imageRef.current?.rotate(),
+                  onCrop: () => imageRef.current?.startCrop(),
+                  onApplyCrop: () => imageRef.current?.applyCrop(),
+                  onCancelCrop: () => imageRef.current?.cancelCrop(),
+                  onResize: () => imageRef.current?.openResize(),
+                }
+              : undefined
+          }
+        />
+      )}
+
       <FindBar
         open={findOpen}
         initialQuery={findQuery}
@@ -201,7 +280,7 @@ export default function App() {
       />
 
       <div
-        className={`workspace ${sidebarOpen && !focusMode ? 'has-sidebar' : ''} ${outlineOpen && !focusMode ? 'has-outline' : ''}`}
+        className={`workspace ${sidebarOpen && !focusMode ? 'has-sidebar' : ''} ${outlineOpen && !focusMode && !isOffice ? 'has-outline' : ''}`}
       >
         {sidebarOpen && !focusMode && (
           <Sidebar
@@ -218,8 +297,51 @@ export default function App() {
           />
         )}
 
-        <main className={`editor-pane mode-${mode}`}>
-          {mode === 'wysiwyg' && (
+        <main className={`editor-pane mode-${isOffice ? 'office' : mode}`}>
+          {isOffice && documentKind === 'word' && (
+            <WordEditor
+              html={htmlContent}
+              onChange={(html) => setHtmlContent(html)}
+              readOnly={isLegacyDoc}
+            />
+          )}
+
+          {isOffice && documentKind === 'excel' && (
+            <ExcelEditor
+              sheets={excelSheets}
+              activeSheet={excelActiveSheet}
+              onSheetsChange={setExcelSheets}
+              onActiveSheet={setExcelActiveSheet}
+            />
+          )}
+
+          {isOffice && documentKind === 'pdf' && binaryBase64 && (
+            <PdfViewer
+              ref={pdfRef}
+              base64={binaryBase64}
+              onMeta={setPdfMeta}
+              onChange={(next) => {
+                setBinaryBase64(next)
+                useAppStore.setState({ dirty: true })
+              }}
+            />
+          )}
+
+          {isOffice && documentKind === 'image' && binaryBase64 && (
+            <ImageViewer
+              ref={imageRef}
+              base64={binaryBase64}
+              fileName={fileName}
+              mime={imageMime}
+              onMeta={setImageMeta}
+              onChange={({ base64: next, mime: nextMime }) => {
+                setBinaryBase64(next)
+                useAppStore.setState({ imageMime: nextMime, dirty: true })
+              }}
+            />
+          )}
+
+          {!isOffice && mode === 'wysiwyg' && (
             <section className="pane-wysiwyg">
               <EditablePreview
                 content={content}
@@ -230,7 +352,7 @@ export default function App() {
             </section>
           )}
 
-          {(mode === 'source' || mode === 'live') && (
+          {!isOffice && (mode === 'source' || mode === 'live') && (
             <section className={`pane-source ${mode === 'live' ? 'split' : 'full'}`}>
               <SourceEditor
                 value={content}
@@ -243,7 +365,7 @@ export default function App() {
             </section>
           )}
 
-          {mode === 'live' && (
+          {!isOffice && mode === 'live' && (
             <section className="pane-preview">
               <LivePreview
                 content={content}
@@ -254,7 +376,9 @@ export default function App() {
           )}
         </main>
 
-        {outlineOpen && !focusMode && <Outline items={outline} onJump={jumpToLine} />}
+        {outlineOpen && !focusMode && !isOffice && (
+          <Outline items={outline} onJump={jumpToLine} />
+        )}
       </div>
 
       {!focusMode && (
@@ -270,7 +394,7 @@ export default function App() {
       <Preferences
         open={preferencesOpen}
         theme={theme}
-        mode={mode}
+        mode={mode === 'office' ? 'wysiwyg' : mode}
         focusMode={focusMode}
         typewriterMode={typewriterMode}
         sidebarOpen={sidebarOpen}

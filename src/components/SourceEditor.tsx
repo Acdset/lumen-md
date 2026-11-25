@@ -429,6 +429,16 @@ export function SourceEditor({
           case 'code-block':
             result = wrapSelection(text, sel.from, sel.to, '```\n', '\n```')
             break
+          case 'insert-md': {
+            const snippet = String(payload ?? '')
+            const insertAt = sel.to
+            result = {
+              text: text.slice(0, insertAt) + snippet + text.slice(insertAt),
+              selectionStart: insertAt + snippet.length,
+              selectionEnd: insertAt + snippet.length,
+            }
+            break
+          }
         }
 
         if (!result) return

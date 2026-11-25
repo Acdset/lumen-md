@@ -34,6 +34,7 @@ const modeTitle: Record<EditorMode, string> = {
   wysiwyg: '当前：预览编辑 — 点击切换',
   live: '当前：分栏预览 — 点击切换',
   source: '当前：源码模式 — 点击切换',
+  office: '当前：文档视图',
 }
 
 export function TitleBar({

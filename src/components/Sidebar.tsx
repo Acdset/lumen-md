@@ -422,8 +422,8 @@ export function Sidebar({
     <aside className="sidebar">
       <div className="sidebar-head">
         <span className="sidebar-title">{folderName ?? '文件'}</span>
-        <button className="ghost-btn" onClick={onOpenFolder} title="打开文件夹">
-          打开
+        <button className="ghost-btn" onClick={onOpenFolder} title="打开文件夹 ⌘⇧O">
+          打开文件夹
         </button>
       </div>
       {folderName && (
